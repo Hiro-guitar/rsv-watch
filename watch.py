@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """予約枠ウォッチャー（Liny予約 / rsv.e-ticket.link）
 
-数分おきに空き枠を読み、次のときだけスマホへ通知する（ntfy）。
+数分おきに空き枠を読み、次のときだけLINEに通知する（自分専用のLINE公式アカウントから）。
   - 新しい日付の枠が公開されたとき（翌々月分の一斉公開）
   - 対象メニューに空きが出たとき（キャンセル拾い）
   - ログインが切れたとき／エラーが続いたとき
@@ -11,7 +11,8 @@
 環境変数（GitHub の Secrets から渡す）
   LIFF_ACCESS_TOKEN  ブラウザでLINEログインした後のアクセストークン
   GROUP_ID           予約ページURLの group_id
-  NTFY_TOPIC         ntfy のトピック名（推測されない長い文字列）
+  LINE_CHANNEL_TOKEN 通知用LINE公式アカウントのチャネルアクセストークン（長期）
+  LINE_USER_ID       通知を受け取る自分のユーザーID（U から始まる）
   BOOK_URL           通知をタップしたときに開く予約ページURL（任意）
   TARGET_MENU        監視するメニュー名（既定: 1歳児預り）
   STATE_PATH         前回の状態を置く場所（既定: state/state.json）
@@ -27,7 +28,7 @@ import urllib.error
 import urllib.request
 
 API_BASE = "https://reserve-api.liny.jp/exapi/"
-NTFY_URL = "https://ntfy.sh/"
+LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
 JST = dt.timezone(dt.timedelta(hours=9))
 WEEKDAYS = "月火水木金土日"
 ERROR_ALERT_AFTER = 6  # 連続この回数失敗したら知らせる（5分おきなら約30分）
@@ -110,24 +111,26 @@ def fetch_slots(group_id):
 
 
 def notify(title, message, priority=3, click=None, tags=None):
+    """LINE公式アカウント（Messaging API）から自分宛てにプッシュする"""
+    mark = {5: "【至急】", 4: "【空き】"}.get(priority, "")
+    text = f"{mark}{title}\n\n{message}"
+    if click:
+        text += f"\n\n予約ページ:\n{click}"
     if env("DRY_RUN") == "1":
-        print(f"--- 通知(優先度{priority}) {title}\n{message}\n")
+        print(f"--- LINE通知\n{text}\n")
         return
     payload = {
-        "topic": env("NTFY_TOPIC", required=True),
-        "title": title,
-        "message": message,
-        "priority": priority,
+        "to": env("LINE_USER_ID", required=True),
+        "messages": [{"type": "text", "text": text[:4900]}],
     }
-    if click:
-        payload["click"] = click
-    if tags:
-        payload["tags"] = tags
     req = urllib.request.Request(
-        NTFY_URL,
+        LINE_PUSH_URL,
         data=json.dumps(payload).encode(),
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + env("LINE_CHANNEL_TOKEN", required=True),
+        },
     )
     with urllib.request.urlopen(req, timeout=30):
         pass
