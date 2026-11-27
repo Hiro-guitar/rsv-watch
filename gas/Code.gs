@@ -169,15 +169,57 @@ function summarize_(data, menuName, now) {
     var cap = Number(menu.capacity || 0);
     var rest = Math.max(cap - Number(menu.reserved_count || 0), 0);
     var deadlineOk = !s.deadline || s.deadline > now; // 同じ書式の文字列なので比較できる
-    out[s.event_date] = { open: !!menu.can_reserve && rest > 0 && deadlineOk, rest: rest, cap: cap };
+    out[s.event_date] = {
+      open: !!menu.can_reserve && rest > 0 && deadlineOk,
+      closed: !deadlineOk,
+      rest: rest,
+      cap: cap
+    };
   });
   return out;
 }
 
-function fmtLine_(date, info) {
-  if (info.open) return label_(date) + ' 残り' + info.rest + '（定員' + info.cap + '）';
-  if (info.cap === 0) return label_(date) + ' 受付なし';
-  return label_(date) + ' 満員（定員' + info.cap + '）';
+/** 今月・来月・再来月の状況を1行ずつまとめる */
+function monthSummary_(days, today) {
+  var y = Number(today.slice(0, 4));
+  var m = Number(today.slice(5, 7));
+  var lines = [];
+  for (var i = 0; i < 3; i++) {
+    var yy = y + Math.floor((m - 1 + i) / 12);
+    var mm = ((m - 1 + i) % 12) + 1;
+    var prefix = yy + '-' + (mm < 10 ? '0' : '') + mm;
+    var ds = Object.keys(days).sort().filter(function (d) {
+      return d.slice(0, 7) === prefix && d >= today;
+    });
+    var head = '■' + mm + '月: ';
+    if (!ds.length) {
+      lines.push(head + (i === 0 ? '今月の残りの予約日はありません' : 'まだ公開されていません'));
+      continue;
+    }
+    var range = ds.length === 1 ? label_(ds[0]) : label_(ds[0]) + '〜' + label_(ds[ds.length - 1]);
+    var open = ds.filter(function (d) { return days[d].open; });
+    var closed = ds.filter(function (d) { return days[d].closed; });
+    var line = head + range + '（' + ds.length + '日）';
+    if (open.length) {
+      line += ' 空きあり ' + open.length + '日\n' +
+        open.map(function (d) { return '　' + label_(d) + ' 残り' + days[d].rest; }).join('\n');
+    } else if (closed.length === ds.length) {
+      line += ' 受付終了（締切済み）';
+    } else {
+      line += ' 空きなし（満員）';
+    }
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+/** いつでも手動で実行して、今の状況をLINEに送る */
+function status() {
+  var now = nowJst_();
+  var menu = cfg_('TARGET_MENU', '1歳児預り', false);
+  var days = summarize_(fetchSlots_(cfg_('GROUP_ID', null, true)), menu, now);
+  notify_('予約の状況', '監視対象: ' + menu + '\n\n' + monthSummary_(days, now.slice(0, 10)), 'info',
+    cfg_('BOOK_URL', null, false));
 }
 
 // ------------------------------------------------------------ 状態
@@ -250,26 +292,29 @@ function run_() {
   var openNow = dates.filter(function (d) { return days[d].open; });
 
   if (!prev) {
-    var lines0 = openNow.map(function (d) { return fmtLine_(d, days[d]); });
-    var future = dates.filter(function (d) { return d >= today; }).length;
     notify_('予約監視を始めました',
-      '対象: ' + menu + '\n今日以降の枠: ' + future + '日\n' +
-      (lines0.length ? lines0.join('\n') : '今は空きなし'), 'info', bookUrl);
+      '監視対象: ' + menu + '\n\n' + monthSummary_(days, today), 'info', bookUrl);
   } else {
     var newDates = dates.filter(function (d) { return !known[d]; });
     if (newDates.length) {
       var months = {};
       newDates.forEach(function (d) { months[Number(d.slice(5, 7)) + '月'] = true; });
       var nOpen = newDates.filter(function (d) { return days[d].open; }).length;
-      notify_(Object.keys(months).join('・') + '分の枠が公開されました（空き' + nOpen + '日）',
-        newDates.map(function (d) { return fmtLine_(d, days[d]); }).join('\n'), 'release', bookUrl);
+      var openNew = newDates.filter(function (d) { return days[d].open; });
+      var body = '予約できる日（' + nOpen + '日）:\n' +
+        (openNew.length
+          ? openNew.map(function (d) { return '　' + label_(d) + ' 残り' + days[d].rest; }).join('\n')
+          : '　なし') +
+        '\n\n満員・受付なしの日: ' + (newDates.length - nOpen) + '日';
+      notify_(Object.keys(months).join('・') + '分の枠が公開されました', body, 'release', bookUrl);
     }
     var isNew = {};
     newDates.forEach(function (d) { isNew[d] = true; });
     var newlyOpen = openNow.filter(function (d) { return !prevOpen[d] && !isNew[d]; });
     if (newlyOpen.length) {
-      notify_('空きが出ました（' + newlyOpen.length + '日）',
-        newlyOpen.map(function (d) { return fmtLine_(d, days[d]); }).join('\n'), 'open', bookUrl);
+      notify_('キャンセルで空きが出ました',
+        newlyOpen.map(function (d) { return '　' + label_(d) + ' 残り' + days[d].rest; }).join('\n'),
+        'open', bookUrl);
     }
   }
 
