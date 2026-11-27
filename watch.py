@@ -12,7 +12,7 @@
   LIFF_ACCESS_TOKEN  ブラウザでLINEログインした後のアクセストークン
   GROUP_ID           予約ページURLの group_id
   LINE_CHANNEL_TOKEN 通知用LINE公式アカウントのチャネルアクセストークン（長期）
-  LINE_USER_ID       通知を受け取る自分のユーザーID（U から始まる）
+  LINE_USER_ID       通知を受け取る自分のユーザーID（任意。無ければ友だち全員に一斉送信）
   BOOK_URL           通知をタップしたときに開く予約ページURL（任意）
   TARGET_MENU        監視するメニュー名（既定: 1歳児預り）
   STATE_PATH         前回の状態を置く場所（既定: state/state.json）
@@ -29,6 +29,7 @@ import urllib.request
 
 API_BASE = "https://reserve-api.liny.jp/exapi/"
 LINE_PUSH_URL = "https://api.line.me/v2/bot/message/push"
+LINE_BROADCAST_URL = "https://api.line.me/v2/bot/message/broadcast"
 JST = dt.timezone(dt.timedelta(hours=9))
 WEEKDAYS = "月火水木金土日"
 ERROR_ALERT_AFTER = 6  # 連続この回数失敗したら知らせる（5分おきなら約30分）
@@ -119,12 +120,15 @@ def notify(title, message, priority=3, click=None, tags=None):
     if env("DRY_RUN") == "1":
         print(f"--- LINE通知\n{text}\n")
         return
-    payload = {
-        "to": env("LINE_USER_ID", required=True),
-        "messages": [{"type": "text", "text": text[:4900]}],
-    }
+    payload = {"messages": [{"type": "text", "text": text[:4900]}]}
+    user_id = env("LINE_USER_ID")
+    if user_id:  # 自分だけに送る
+        payload["to"] = user_id
+        url = LINE_PUSH_URL
+    else:  # 友だち全員に送る（友だちが自分だけのアカウント用）
+        url = LINE_BROADCAST_URL
     req = urllib.request.Request(
-        LINE_PUSH_URL,
+        url,
         data=json.dumps(payload).encode(),
         method="POST",
         headers={

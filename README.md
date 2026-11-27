@@ -33,7 +33,7 @@ LINE予約ページ（Liny予約）の空き枠を5分おきに確認し、変�
 | `LIFF_ACCESS_TOKEN` | 手順2でコピーした値 |
 | `GROUP_ID` | 予約ページURLの `group_id=` の数字 |
 | `LINE_CHANNEL_TOKEN` | 手順1のチャネルアクセストークン（長期） |
-| `LINE_USER_ID` | 手順1のユーザーID |
+| `LINE_USER_ID` | 手順1のユーザーID（任意。省略すると友だち全員に一斉送信するので、友だちが自分だけのアカウントで使う） |
 | `BOOK_URL` | 通知をタップしたときに開く予約ページのURL（任意） |
 
 Actions タブ → watch → Run workflow で手動実行し、「予約監視を始めました」が届けば完了。
