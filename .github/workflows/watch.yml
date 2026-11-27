@@ -1,0 +1,42 @@
+name: watch
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # 5分おき（GitHub側の混雑で数分遅れることがある）
+  workflow_dispatch:         # 手動実行（動作確認用）
+
+concurrency:
+  group: watch
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 前回の状態を読む
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: state-${{ github.run_id }}
+          restore-keys: state-
+
+      - name: 空き枠を確認
+        run: python3 watch.py
+        env:
+          LIFF_ACCESS_TOKEN: ${{ secrets.LIFF_ACCESS_TOKEN }}
+          GROUP_ID: ${{ secrets.GROUP_ID }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          BOOK_URL: ${{ secrets.BOOK_URL }}
+
+      - name: 状態を保存
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: state-${{ github.run_id }}-${{ github.run_attempt }}
