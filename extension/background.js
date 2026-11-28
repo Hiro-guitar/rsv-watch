@@ -1,6 +1,6 @@
 // 1時間おきに GAS へ「証明書はあと何時間もつか」を聞き、
 // 残りが少なければ最小化したウィンドウで予約ページを開いて取り直す。
-var REFRESH_BELOW_SEC = 8 * 3600; // 残りがこれ未満なら取り直す
+var REFRESH_BELOW_SEC = 10 * 3600; // 証明書は約12時間もつ。残り10時間を切ったら取り直す
 var TIMEOUT_MIN = 3;
 
 function ensureAlarm() {
