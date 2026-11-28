@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>予約監視 ログイン自動更新</title>
+<style>
+  body { font: 14px/1.6 -apple-system, "Hiragino Sans", sans-serif; max-width: 640px; margin: 32px auto; color: #222; }
+  h1 { font-size: 18px; }
+  label { display: block; margin-top: 16px; font-weight: 600; }
+  input { width: 100%; padding: 8px; box-sizing: border-box; font: inherit; }
+  .row { margin-top: 16px; display: flex; gap: 8px; }
+  button { padding: 8px 14px; font: inherit; cursor: pointer; }
+  #msg { margin-top: 8px; color: #06783b; min-height: 1.6em; }
+  pre { background: #f5f5f5; padding: 12px; white-space: pre-wrap; font-size: 12px; }
+  .note { color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>予約監視 ログイン自動更新</h1>
+<p class="note">1時間おきに証明書の残りを確認し、8時間を切ったら最小化したウィンドウで予約ページを開いて取り直します。LINEのパスワードは扱いません。</p>
+<label>GASのウェブアプリURL（…/exec）<input id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec"></label>
+<label>合言葉（GASの makePushSecret で表示されたもの）<input id="secret" type="password"></label>
+<div class="row">
+  <button id="save">保存</button>
+  <button id="check">今すぐ確認</button>
+  <button id="refresh">今すぐ取り直す</button>
+</div>
+<div id="msg"></div>
+<h2 style="font-size:15px">記録</h2>
+<pre id="logs"></pre>
+<script src="options.js"></script>
+</body>
+</html>

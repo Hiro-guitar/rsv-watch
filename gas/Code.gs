@@ -24,6 +24,33 @@ var LINE_BROADCAST_URL = 'https://api.line.me/v2/bot/message/broadcast';
 var ERROR_ALERT_AFTER = 6; // 5分おきなら約30分
 var WEEK = '日月火水木金土';
 var STATE_KEY = 'STATE';
+var LINE_VERIFY_URL = 'https://api.line.me/oauth2/v2.1/verify?access_token=';
+var EXPIRY_WARN_SEC = 2 * 3600; // 残りがこれを切ったら知らせる
+
+/** 証明書の残り時間を LINE に問い合わせる。無効なら null */
+function tokenInfo_(token) {
+  if (!token) return null;
+  var res = UrlFetchApp.fetch(LINE_VERIFY_URL + encodeURIComponent(token), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) return null;
+  var info = JSON.parse(res.getContentText());
+  if (String(info.client_id) !== liffChannelId_() || !(info.expires_in > 0)) return null;
+  return info;
+}
+
+/** BOOK_URL の liff_id=XXXX-YYYY から XXXX（チャネルID）を取り出す */
+function liffId_() {
+  var m = /[?&]liff_id=([^&]+)/.exec(cfg_('BOOK_URL', '', false));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+function liffChannelId_() {
+  return liffId_().split('-')[0];
+}
+
+/** 拡張が開くページ（ログインの入口） */
+function entryUrl_() {
+  return 'https://rsv.e-ticket.link/?liff_id=' + encodeURIComponent(liffId_()) +
+    '&group_id=' + encodeURIComponent(cfg_('GROUP_ID', '', false));
+}
 
 // ------------------------------------------------------------ 公開関数
 
@@ -49,6 +76,71 @@ function resetState() {
 /** LINEに届くかだけ試す */
 function testNotify() {
   notify_('予約監視: テスト', 'LINE通知のテストです。', 'info', null);
+}
+
+/** 今の証明書の残り時間を実行ログに出す */
+function showTokenInfo() {
+  var info = tokenInfo_(loadToken_());
+  console.log(info ? '有効・残り ' + (info.expires_in / 3600).toFixed(1) + ' 時間' : '無効（期限切れ）');
+}
+
+/** Chrome拡張用の合言葉を作ってプロパティに保存し、実行ログに出す（最初に1回だけ） */
+function makePushSecret() {
+  var s = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  PropertiesService.getScriptProperties().setProperty('PUSH_SECRET', s);
+  console.log('拡張に入れる合言葉: ' + s);
+}
+
+// ------------------------------------------------------------ Chrome拡張からの受け口（ウェブアプリ）
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function checkSecret_(s) {
+  var expected = cfg_('PUSH_SECRET', null, false);
+  return !!expected && s === expected;
+}
+
+/** 拡張が「今の証明書はあと何時間もつか」を聞く */
+function doGet(e) {
+  if (!checkSecret_(e.parameter.secret)) return json_({ ok: false, error: 'forbidden' });
+  var info = tokenInfo_(loadToken_());
+  return json_({ ok: true, valid: !!info, expires_in: info ? info.expires_in : 0, entry: entryUrl_() });
+}
+
+/** 拡張が新しい証明書を送ってくる／失敗を知らせてくる */
+function doPost(e) {
+  var body = {};
+  try {
+    body = JSON.parse(e.postData.contents);
+  } catch (err) {
+    return json_({ ok: false, error: 'bad json' });
+  }
+  if (!checkSecret_(body.secret)) return json_({ ok: false, error: 'forbidden' });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    if (body.action === 'fail') {
+      notify_('予約監視: ログインの自動更新に失敗しました',
+        'Chrome拡張がログインし直せませんでした（' + String(body.reason || '不明').slice(0, 100) + '）。' +
+        'PCのChromeで予約ページを開いてログインし直すと、拡張が次の確認で自動で入れ直します。', 'alert', null);
+      return json_({ ok: true });
+    }
+    var info = tokenInfo_(String(body.token || ''));
+    if (!info) return json_({ ok: false, error: 'invalid token' });
+    PropertiesService.getScriptProperties().setProperty('LIFF_ACCESS_TOKEN', String(body.token));
+    var state = loadState_();
+    if (state) {
+      state.expiry_warned = false;
+      saveState_(state);
+    }
+    console.log('証明書を更新: 残り ' + (info.expires_in / 3600).toFixed(1) + ' 時間');
+    return json_({ ok: true, expires_in: info.expires_in });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** トリガーから呼ばれる本体 */
@@ -238,6 +330,28 @@ function saveState_(state) {
   PropertiesService.getScriptProperties().setProperty(STATE_KEY, JSON.stringify(state));
 }
 
+/** 証明書の期限を1時間に1回確かめ、切れそうなら一度だけ知らせる */
+function checkExpiry_(state) {
+  var token = loadToken_();
+  var hash = Utilities.base64Encode(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, token)).slice(0, 16);
+  var nowMs = Date.now();
+  if (state.token_hash !== hash || !state.exp_checked_at || nowMs - state.exp_checked_at > 3600000) {
+    var info = tokenInfo_(token);
+    state.token_exp_at = info ? nowMs + info.expires_in * 1000 : nowMs;
+    state.exp_checked_at = nowMs;
+    if (state.token_hash !== hash) state.expiry_warned = false;
+    state.token_hash = hash;
+  }
+  var left = (state.token_exp_at - nowMs) / 1000;
+  if (left < EXPIRY_WARN_SEC && !state.expiry_warned) {
+    notify_('予約監視: まもなくログインが切れます',
+      'あと約' + Math.max(0, Math.round(left / 60)) + '分でログインが切れます。' +
+      'MacのChromeが開いていれば拡張が自動で更新します。届き続ける場合は、PCのChromeで予約ページを開いてください。',
+      'alert', null);
+    state.expiry_warned = true;
+  }
+}
+
 // ------------------------------------------------------------ 本体
 
 function run_() {
@@ -282,6 +396,7 @@ function run_() {
   }
   state.auth_alerted = false;
   state.errors = 0;
+  checkExpiry_(state);
 
   var days = summarize_(data, menu, now);
   var dates = Object.keys(days).sort();
