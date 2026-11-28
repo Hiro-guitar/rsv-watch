@@ -51,7 +51,7 @@ GROUP_ID=x DRY_RUN=1 FIXTURE=slots.json STATE_PATH=/tmp/state.json python3 watch
 ## ログインの自動更新（Chrome拡張）
 
 `extension/` は、予約ページの証明書が切れる前にChromeのLINEログイン状態を使って取り直し、GASへ送る拡張。
-LINEのパスワードは扱わない。予約ページ自身の「ブラウザでログインする」ボタンだけを押し、LINEのログイン画面では何も操作しない。
+LINEのパスワードは扱わない。予約ページの「ブラウザでログインする」と、LINEの「次のアカウントでログイン」画面の「ログイン」だけを押す（パスワード入力画面では何もしない）。
 
 1. GASで `makePushSecret` を実行し、表示された合言葉を控える
 2. GASを「ウェブアプリ」としてデプロイ（実行ユーザー: 自分 / アクセス: 全員）し、…/exec のURLを控える

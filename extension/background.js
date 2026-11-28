@@ -17,6 +17,12 @@ chrome.alarms.onAlarm.addListener(function (a) {
 });
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+  if (msg.type === 'isOurs') {
+    cfg().then(function (c) {
+      sendResponse({ ours: !!c.running && !!sender.tab && sender.tab.windowId === c.winId });
+    });
+    return true;
+  }
   if (msg.type === 'token') onToken(msg.token);
   if (msg.type === 'refreshNow') tick(true).then(function () { sendResponse({ ok: true }); });
   if (msg.type === 'checkNow') tick(false).then(function () { sendResponse({ ok: true }); });
